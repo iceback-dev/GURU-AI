@@ -1,0 +1,140 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>ForgeAI</title>
+<style>
+  * { box-sizing: border-box; font-family: system-ui, sans-serif; }
+  body { margin: 0; background: #0b1020; color: #e7ecf3; }
+  header { padding: 16px 24px; display: flex; justify-content: space-between;
+           border-bottom: 1px solid #1e2740; }
+  h1 { margin: 0; font-size: 18px; }
+  #credits { color: #6ee7b7; font-weight: 600; }
+  main { max-width: 900px; margin: 0 auto; padding: 24px; }
+  textarea { width: 100%; min-height: 140px; padding: 12px; border-radius: 10px;
+             border: 1px solid #243054; background: #0f1630; color: #e7ecf3;
+             font-size: 14px; resize: vertical; }
+  button { padding: 10px 18px; border-radius: 10px; border: 0; cursor: pointer;
+           background: #6366f1; color: white; font-weight: 600; margin-right: 8px; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; margin: 12px 0; }
+  .card { background: #0f1630; padding: 16px; border-radius: 12px; margin-top: 16px;
+          border: 1px solid #1e2740; }
+  #auth input { padding: 10px; border-radius: 8px; border: 1px solid #243054;
+                background: #0f1630; color: #e7ecf3; margin-right: 8px; }
+  #status { margin-top: 12px; color: #fbbf24; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ ForgeAI</h1>
+  <div>Credits: <span id="credits">–</span></div>
+</header>
+
+<main>
+  <div id="auth" class="card">
+    <h3>Login / Register</h3>
+    <input id="email" placeholder="email" />
+    <input id="password" type="password" placeholder="password" />
+    <button onclick="register()">Register</button>
+    <button onclick="login()">Login</button>
+  </div>
+
+  <div id="app" style="display:none">
+    <div class="card">
+      <h3>Describe what you want to build</h3>
+      <textarea id="prompt" placeholder="A landing page for a coffee shop with a menu and contact form"></textarea>
+      <div class="row">
+        <button onclick="generate('website')">🌐 Website (10 credits)</button>
+        <button onclick="generate('apk')">📱 Android App (50 credits)</button>
+      </div>
+      <div id="status"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+const API = ""; // same origin on Vercel
+let token = localStorage.getItem("token");
+
+async function api(path, opts = {}) {
+  opts.headers = { ...(opts.headers || {}), "Content-Type": "application/json" };
+  if (token) opts.headers["Authorization"] = "Bearer " + token;
+  const r = await fetch(API + path, opts);
+  if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+  return r.json();
+}
+
+async function register() {
+  const body = JSON.stringify({ email: email.value, password: password.value });
+  const d = await api("/auth/register", { method: "POST", body });
+  token = d.access_token;
+  localStorage.setItem("token", token);
+  showApp();
+}
+
+async function login() {
+  const body = JSON.stringify({ email: email.value, password: password.value });
+  const d = await api("/auth/login", { method: "POST", body });
+  token = d.access_token;
+  localStorage.setItem("token", token);
+  showApp();
+}
+
+async function showApp() {
+  auth.style.display = "none";
+  app.style.display = "block";
+  await refreshMe();
+}
+
+async function refreshMe() {
+  try {
+    const me = await api("/me");
+    credits.textContent = me.credits + " / " + me.daily_credits;
+  } catch {
+    auth.style.display = "block";
+    app.style.display = "none";
+  }
+}
+
+async function generate(kind) {
+  status.textContent = "⏳ Generating… this can take up to 60 seconds.";
+  try {
+    const body = JSON.stringify({ prompt: prompt.value });
+    const r = await fetch("/generate/" + kind, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + token,
+      },
+      body,
+    });
+
+    if (!r.ok) {
+      const err = await r.json();
+      throw new Error(err.detail?.error || err.detail || r.statusText);
+    }
+
+    // Download the zip
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = kind === "website" ? "website.zip" : "android-source.zip";
+    a.click();
+    URL.revokeObjectURL(url);
+
+    // Update credits from response header
+    const left = r.headers.get("X-Credits-Left");
+    if (left) credits.textContent = left + " / 300";
+
+    status.textContent = "✅ Done! Check your downloads.";
+  } catch (e) {
+    status.textContent = "❌ " + e.message;
+  }
+}
+
+if (token) showApp();
+</script>
+</body>
+</html>
